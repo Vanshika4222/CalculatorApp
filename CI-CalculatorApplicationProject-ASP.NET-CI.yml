@@ -1,0 +1,111 @@
+variables:
+- name: BuildParameters.solution
+  value: CalculatorApp.sln
+- name: BuildParameters.ArtifactName
+  value: drop
+trigger:
+  branches:
+    include:
+    - refs/heads/master
+name: $(date:yyyyMMdd)$(rev:.r)
+jobs:
+- job: Job_1
+  displayName: Agent job 1
+  pool:
+    vmImage: vs2017-win2016
+    demands:
+    - java
+  steps:
+  - checkout: self
+  - task: NuGetToolInstaller@0
+    displayName: Use NuGet 4.4.1
+    inputs:
+      versionSpec: 4.4.1
+  - task: NuGetCommand@2
+    displayName: NuGet restore
+    inputs:
+      solution: $(BuildParameters.solution)
+  - task: SonarCloudPrepare@1
+    displayName: Prepare analysis on SonarCloud
+    inputs:
+      SonarCloud: f426ab3b-a378-47ea-8b4d-8b863f335b0b
+      organization: infy97849
+      scannerMode: CLI
+      configMode: manual
+      cliProjectKey: Sonarcalculator123
+      projectKey: calckey
+      cliProjectName: Sonarcalculator123
+      projectName: calculator
+      cliSources: CalculatorApp
+      extraProperties: "# Additional properties that will be passed to the scanner, \n# Put one key=value per line, example:\n#sonar.exclusions=**/*.bin\nsonar.exclusions=**/*.obj"
+  - task: VSBuild@1
+    displayName: Build solution
+    inputs:
+      solution: $(BuildParameters.solution)
+      msbuildArgs: /p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:PackageLocation="$(build.artifactstagingdirectory)\\"
+      platform: $(BuildPlatform)
+      configuration: $(BuildConfiguration)
+  - task: NuGetCommand@2
+    displayName: NuGet pack
+    inputs:
+      command: pack
+      solution: CalculatorApp/CalculatorApp.csproj
+      searchPatternPack: CalculatorApp/CalculatorApp.csproj
+  - task: VSTest@2
+    displayName: Test Assemblies
+    inputs:
+      testAssemblyVer2: >
+        CalculatorApp.Tests/bin/Release/CalculatorApp.Tests.dll
+      codeCoverageEnabled: true
+      platform: $(BuildPlatform)
+      configuration: $(BuildConfiguration)
+  - task: BuildQualityChecks@8
+    displayName: Check build quality
+    inputs:
+      checkCoverage: true
+      coverageFailOption: fixed
+      coverageType: lines
+      coverageThreshold: 20
+  - task: SonarCloudAnalyze@1
+    displayName: Run Code Analysis
+  - task: SonarCloudPublish@1
+    displayName: Publish Quality Gate Result
+  - task: CopyFiles@2
+    displayName: Copy functional test files
+    inputs:
+      SourceFolder: $(agent.builddirectory)
+      Contents: >2-
+
+        **\*.runsettings
+
+        **\*Nunit.FunctionalTest*\**\bin\$(BuildConfiguration)\**
+      TargetFolder: $(build.artifactstagingdirectory)\FunctionalTests
+  - task: WorkItemUpdater@2
+    displayName: WorkItem Updater
+    inputs:
+      workItemType: User Story
+      workItemState: New
+      workItemKanbanState: Active
+      workItemDone: true
+  - task: PublishSymbols@2
+    displayName: Publish symbols path
+    continueOnError: True
+    inputs:
+      SearchPattern: '**\bin\**\*.pdb'
+      PublishSymbols: false
+      SymbolServerType: TeamServices
+  - task: PublishBuildArtifacts@1
+    displayName: Publish Artifact
+    condition: succeededOrFailed()
+    inputs:
+      PathtoPublish: $(build.artifactstagingdirectory)
+      ArtifactName: $(BuildParameters.ArtifactName)
+      TargetPath: '\\my\share\$(Build.DefinitionName)\$(Build.BuildNumber)'
+  - task: NuGetCommand@2
+    displayName: NuGet push
+    inputs:
+      command: push
+      feedPublish: 4e998dda-2778-460a-a671-36f710a533b2/979486f6-188a-4c38-b04a-7a109e7dbf85
+      allowPackageConflicts: true
+      searchPatternPack: CalculatorApp/CalculatorApp.csproj
+...
